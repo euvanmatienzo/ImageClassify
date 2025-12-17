@@ -9,7 +9,7 @@ import threading
 import queue
 
 # ================= YOLO =================
-model = YOLO("yolov8n.pt")  # Nano model for Raspberry Pi CPU
+model = YOLO("yolov8l.pt")  # Nano model for Raspberry Pi CPU
 
 # ================= EASYOCR =================
 reader = easyocr.Reader(['en'], gpu=False)
@@ -182,4 +182,5 @@ def on_close():
 
 root.protocol("WM_DELETE_WINDOW", on_close)
 root.mainloop()
+
 
