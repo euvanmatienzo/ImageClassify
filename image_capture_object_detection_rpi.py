@@ -9,7 +9,7 @@ import threading
 import queue
 
 # ================= YOLO =================
-model = YOLO("yolov8n.pt")  # Nano model for Raspberry Pi CPU
+model = YOLO("yolov8l.pt")  # Nano model for Raspberry Pi CPU
 
 # ================= EASYOCR =================
 reader = easyocr.Reader(['en'], gpu=False)
@@ -132,6 +132,7 @@ def update_status(msg):
     status_text.config(state="disabled")
 
 # ================= CAPTURE =================
+# ================= CAPTURE =================
 def capture_predict():
     ret, frame = cap.read()
     if not ret:
@@ -140,27 +141,35 @@ def capture_predict():
 
     update_status("Detecting...")
 
+    # Resize frame for faster processing
     small_frame = cv2.resize(frame, (640, 480))
 
+    # YOLO detection (objects only)
     results = model(small_frame)
-    frame, objects = draw_boxes(small_frame, results)
-    texts = detect_text(small_frame)
+    frame_with_boxes, objects = draw_boxes(small_frame.copy(), results)  # draw boxes on copy
 
-    show_frame(frame)
+    # EasyOCR detection (text only)
+    texts = detect_text(frame)  # <-- Use original frame for OCR
 
+    # Show frame with YOLO boxes
+    show_frame(frame_with_boxes)
+
+    # Build message
     message = ""
     if objects:
         message += "Objects: " + ", ".join(objects)
+    else:
+        message += "Objects: None"
+
     if texts:
-        if message:
-            message += "\n"
-        message += "Text: " + ", ".join(texts)
+        message += "\nText: " + ", ".join(texts)
+    else:
+        message += "\nText: None"
 
-    if not message:
-        message = "Nothing detected"
-
+    # Update status and speak
     update_status(message)
     speech_queue.put(message)
+
 
 # ================= START =================
 update_video()
