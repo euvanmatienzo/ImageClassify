@@ -1,4 +1,4 @@
-﻿import cv2
+import cv2
 import tkinter as tk
 from tkinter import Label, Button, Frame, Text, Scrollbar
 from PIL import Image, ImageTk
