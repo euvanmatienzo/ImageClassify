@@ -9,7 +9,7 @@ import threading
 import queue
 
 # ================= YOLO =================
-model = YOLO("yolov8l.pt")  # Nano model for Raspberry Pi CPU
+model = YOLO("yolov8n.pt")  # Use Nano for Raspberry Pi
 
 # ================= EASYOCR =================
 reader = easyocr.Reader(['en'], gpu=False)
@@ -55,7 +55,6 @@ status_text.config(yscrollcommand=scrollbar.set)
 capture_button = Button(
     control_frame,
     text="CAPTURE",
-    command=lambda: threading.Thread(target=capture_predict, daemon=True).start(),
     font=("Arial", 24, "bold"),
     bg="green",
     fg="white"
@@ -66,18 +65,14 @@ capture_button.pack(side="right", padx=10, pady=5, fill="y")
 speech_queue = queue.Queue()
 
 def speech_worker():
+    engine = pyttsx3.init()
     while True:
         text = speech_queue.get()
         if text is None:
             break
-
-        def speak(text_to_speak):
-            engine = pyttsx3.init()
-            engine.say(text_to_speak)
-            engine.runAndWait()
-            engine.stop()
-
-        threading.Thread(target=speak, args=(text,), daemon=True).start()
+        engine.say(text)
+        engine.runAndWait()
+    engine.stop()
 
 threading.Thread(target=speech_worker, daemon=True).start()
 
@@ -89,10 +84,8 @@ def draw_boxes(frame, results):
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         cls = int(box.cls[0])
         conf = float(box.conf[0])
-
         label = f"{r.names[cls]} {conf:.2f}"
         names.append(r.names[cls])
-
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         cv2.putText(frame, label, (x1, y1 - 5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -121,55 +114,53 @@ def update_video():
     ret, frame = cap.read()
     if ret:
         show_frame(frame)
-    root.after(30, update_video)  # slower refresh to reduce CPU load
+    root.after(30, update_video)  # ~30 FPS
 
-# ================= STATUS =================
-def update_status(msg):
-    status_text.config(state="normal")
-    status_text.delete("1.0", "end")
-    status_text.insert("end", msg)
-    status_text.see("end")
-    status_text.config(state="disabled")
-
-# ================= CAPTURE =================
 # ================= CAPTURE =================
 def capture_predict():
     ret, frame = cap.read()
     if not ret:
-        update_status("Camera error")
+        status_text.config(state="normal")
+        status_text.insert("end", "Camera error\n\n")
+        status_text.config(state="disabled")
         return
 
-    update_status("Detecting...")
+    # Show detecting immediately
+    status_text.config(state="normal")
+    status_text.insert("end", "Detecting...\n")
+    status_text.see("end")
+    status_text.config(state="disabled")
 
-    # Resize frame for faster processing
+    # Resize frame for YOLO
     small_frame = cv2.resize(frame, (640, 480))
 
-    # YOLO detection (objects only)
+    # YOLO detection
     results = model(small_frame)
-    frame_with_boxes, objects = draw_boxes(small_frame.copy(), results)  # draw boxes on copy
+    frame_with_boxes, objects = draw_boxes(small_frame.copy(), results)
 
-    # EasyOCR detection (text only)
-    texts = detect_text(frame)  # <-- Use original frame for OCR
+    # EasyOCR detection
+    texts = detect_text(frame)
 
     # Show frame with YOLO boxes
     show_frame(frame_with_boxes)
 
     # Build message
-    message = ""
-    if objects:
-        message += "Objects: " + ", ".join(objects)
-    else:
-        message += "Objects: None"
+    message_lines = []
+    message_lines.append("Objects: " + (", ".join(objects) if objects else "None"))
+    message_lines.append("Text: " + (", ".join(texts) if texts else "None"))
+    message = "\n".join(message_lines)
 
-    if texts:
-        message += "\nText: " + ", ".join(texts)
-    else:
-        message += "\nText: None"
+    # Update status
+    status_text.config(state="normal")
+    status_text.insert("end", message + "\n\n")
+    status_text.see("end")
+    status_text.config(state="disabled")
 
-    # Update status and speak
-    update_status(message)
+    # Queue speech
     speech_queue.put(message)
 
+# Bind capture button
+capture_button.config(command=lambda: threading.Thread(target=capture_predict, daemon=True).start())
 
 # ================= START =================
 update_video()
@@ -182,5 +173,3 @@ def on_close():
 
 root.protocol("WM_DELETE_WINDOW", on_close)
 root.mainloop()
-
-
