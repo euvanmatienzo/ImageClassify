@@ -35,44 +35,40 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 # ================= APP STATE =================
 paused = False
 last_frame = None
-MODE = "AUTO"  # AUTO | ONLINE | OFFLINE
+MODE = "AUTO"
 
 # ================= TKINTER =================
 root = tk.Tk()
 root.title("Vision Capture")
 
-# ---- AUTO SCREEN SIZE ----
-root.update_idletasks()
-SCREEN_W = root.winfo_screenwidth()
-SCREEN_H = root.winfo_screenheight()
+# IMPORTANT: RESIZABLE WINDOW (NO FULLSCREEN)
+root.resizable(True, True)
+root.minsize(800, 480)
 
-root.geometry(f"{SCREEN_W}x{SCREEN_H}")
-root.minsize(SCREEN_W, SCREEN_H)
-root.maxsize(SCREEN_W, SCREEN_H)
+# ================= GRID LAYOUT =================
+root.grid_rowconfigure(0, weight=1)   # video
+root.grid_rowconfigure(1, weight=0)   # controls
+root.grid_columnconfigure(0, weight=1)
 
-# ---- SAFE AREA FIX FOR RASPBERRY PI DESKTOP ----
-WINDOW_TOP_MARGIN = 40   # title bar + desktop panel
-SAFE_HEIGHT = SCREEN_H - WINDOW_TOP_MARGIN
-
-# ---- LAYOUT CONSTANTS ----
 CONTROL_HEIGHT = 140
+current_video_width = 800
+current_video_height = 480 - CONTROL_HEIGHT
 
 # ================= VIDEO FRAME =================
-video_frame = Frame(
-    root,
-    bg="black",
-    height=SAFE_HEIGHT - CONTROL_HEIGHT
-)
-video_frame.pack(side="top", fill="x")
-video_frame.pack_propagate(False)
+video_frame = Frame(root, bg="black")
+video_frame.grid(row=0, column=0, sticky="nsew")
 
 video_label = Label(video_frame, bg="black")
 video_label.pack(fill="both", expand=True)
 
 # ================= CONTROL BAR =================
 control_frame = Frame(root, bg="black", height=CONTROL_HEIGHT)
-control_frame.pack(side="bottom", fill="x")
-control_frame.pack_propagate(False)
+control_frame.grid(row=1, column=0, sticky="ew")
+control_frame.grid_propagate(False)
+
+control_frame.grid_columnconfigure(0, weight=1)
+control_frame.grid_columnconfigure(1, weight=0)
+control_frame.grid_columnconfigure(2, weight=0)
 
 # ---- STATUS TEXT ----
 status_text = Text(
@@ -84,17 +80,16 @@ status_text = Text(
     bd=0,
     height=3
 )
-status_text.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+status_text.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
 scrollbar = Scrollbar(control_frame, command=status_text.yview)
-scrollbar.pack(side="left", fill="y")
+scrollbar.grid(row=0, column=1, sticky="ns")
 status_text.config(yscrollcommand=scrollbar.set)
 
-# ---- BUTTON AREA (HORIZONTAL) ----
+# ---- BUTTONS ----
 button_frame = Frame(control_frame, bg="black")
-button_frame.pack(side="right", padx=10, pady=10)
+button_frame.grid(row=0, column=2, padx=10, pady=10)
 
-# ================= BUTTONS =================
 def on_capture():
     global paused
     if not paused:
@@ -111,10 +106,9 @@ capture_button = Button(
     bg="green",
     fg="white",
     width=9,
-    height=1,
     command=on_capture
 )
-capture_button.pack(side="left", padx=8)
+capture_button.grid(row=0, column=0, padx=5)
 
 def toggle_mode():
     global MODE
@@ -130,16 +124,16 @@ mode_button = Button(
     width=8,
     command=toggle_mode
 )
-mode_button.pack(side="left", padx=5)
+mode_button.grid(row=0, column=1, padx=5)
 
 mode_label = Label(
-    control_frame,
+    button_frame,
     text="MODE: AUTO",
     font=("Arial", 12, "bold"),
     fg="yellow",
     bg="black"
 )
-mode_label.pack(side="right", padx=10)
+mode_label.grid(row=1, column=0, columnspan=2, pady=4)
 
 # ================= SPEECH =================
 speech_queue = queue.Queue()
@@ -150,25 +144,31 @@ def process_speech_queue():
     if not speaking and not speech_queue.empty():
         text = speech_queue.get()
         speaking = True
-        try:
-            engine = pyttsx3.init()
-            engine.say(text)
-            engine.runAndWait()
-            engine.stop()
-        except Exception as e:
-            print("Speech error:", e)
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+        engine.stop()
         speaking = False
     root.after(100, process_speech_queue)
 
 root.after(100, process_speech_queue)
 
+# ================= RESIZE HANDLER =================
+def on_resize(event):
+    global current_video_width, current_video_height
+    w = root.winfo_width()
+    h = root.winfo_height()
+    current_video_width = max(1, w)
+    current_video_height = max(1, h - CONTROL_HEIGHT)
+
+root.bind("<Configure>", on_resize)
+
 # ================= UI HELPERS =================
 def show_frame(frame):
+    if current_video_width <= 1 or current_video_height <= 1:
+        return
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    frame = cv2.resize(
-        frame,
-        (SCREEN_W, SAFE_HEIGHT - CONTROL_HEIGHT)
-    )
+    frame = cv2.resize(frame, (current_video_width, current_video_height))
     img = Image.fromarray(frame)
     imgtk = ImageTk.PhotoImage(img)
     video_label.imgtk = imgtk
@@ -178,7 +178,6 @@ def update_status(msg):
     status_text.config(state="normal")
     status_text.delete("1.0", "end")
     status_text.insert("end", msg)
-    status_text.see("end")
     status_text.config(state="disabled")
 
 # ================= LIVE VIDEO =================
@@ -199,42 +198,25 @@ def offline_detect(frame):
     original_frame = frame.copy()
     yolo_frame = frame.copy()
 
-    # YOLO OBJECTS
     results = yolo_model(yolo_frame, verbose=False)
     for r in results:
         for box in r.boxes:
             cls = int(box.cls[0])
             label = r.names[cls]
             detected_objects.append(label)
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            cv2.rectangle(yolo_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(
-                yolo_frame,
-                label,
-                (x1, max(y1 - 6, 15)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 255, 0),
-                2
-            )
+            x1,y1,x2,y2 = map(int, box.xyxy[0])
+            cv2.rectangle(yolo_frame,(x1,y1),(x2,y2),(0,255,0),2)
+            cv2.putText(yolo_frame,label,(x1,y1-6),
+                        cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,255,0),2)
 
-    # EASYOCR ON CLEAN FRAME
-    for bbox, text, conf in ocr_reader.readtext(original_frame):
-        if conf < 0.4:
-            continue
+    for bbox,text,conf in ocr_reader.readtext(original_frame):
+        if conf < 0.4: continue
         detected_texts.append(text)
-        pts = np.array(bbox, dtype=np.int32)
-        cv2.polylines(yolo_frame, [pts], True, (255, 0, 0), 2)
-        x, y = pts[0]
-        cv2.putText(
-            yolo_frame,
-            text[:15],
-            (x, max(y - 6, 15)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 0, 0),
-            2
-        )
+        pts = np.array(bbox, np.int32)
+        cv2.polylines(yolo_frame,[pts],True,(255,0,0),2)
+        x,y = pts[0]
+        cv2.putText(yolo_frame,text[:15],(x,y-6),
+                    cv2.FONT_HERSHEY_SIMPLEX,0.5,(255,0,0),2)
 
     return yolo_frame, detected_objects, detected_texts
 
@@ -243,78 +225,45 @@ def online_detect(frame):
     detected_objects = []
     detected_texts = []
 
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    _, buf = cv2.imencode(".jpg", frame)
     image = vision.Image(content=buf.tobytes())
 
-    objects = vision_client.object_localization(image=image)\
-                           .localized_object_annotations
+    objects = vision_client.object_localization(image=image).localized_object_annotations
     ocr = vision_client.text_detection(image=image).text_annotations
 
-    h, w, _ = frame.shape
+    h,w,_ = frame.shape
 
-    # OBJECTS
     for o in objects:
         v = o.bounding_poly.normalized_vertices
-        x1, y1 = int(v[0].x * w), int(v[0].y * h)
-        x2, y2 = int(v[2].x * w), int(v[2].y * h)
+        x1,y1,x2,y2 = int(v[0].x*w),int(v[0].y*h),int(v[2].x*w),int(v[2].y*h)
         detected_objects.append(o.name)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(
-            frame,
-            o.name,
-            (x1, max(y1 - 6, 15)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2
-        )
+        cv2.rectangle(frame,(x1,y1),(x2,y2),(0,255,0),2)
+        cv2.putText(frame,o.name,(x1,y1-6),
+                    cv2.FONT_HERSHEY_SIMPLEX,0.6,(0,255,0),2)
 
-    # OCR (WITH TEXT)
     for t in ocr[1:]:
-        pts = []
-        for v in t.bounding_poly.vertices:
-            if v.x is not None and v.y is not None:
-                pts.append([v.x, v.y])
-        if len(pts) < 4:
-            continue
-
+        pts = [[v.x,v.y] for v in t.bounding_poly.vertices if v.x is not None]
+        if len(pts) < 4: continue
         label = t.description.strip()
-        if not label:
-            continue
-
         detected_texts.append(label)
-        pts = np.array(pts, dtype=np.int32)
-        cv2.polylines(frame, [pts], True, (255, 0, 0), 2)
-
-        x, y = pts[0]
-        cv2.putText(
-            frame,
-            label[:15],
-            (x, max(y - 6, 15)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 0, 0),
-            2
-        )
+        pts = np.array(pts,np.int32)
+        cv2.polylines(frame,[pts],True,(255,0,0),2)
+        x,y = pts[0]
+        cv2.putText(frame,label[:15],(x,y-6),
+                    cv2.FONT_HERSHEY_SIMPLEX,0.5,(255,0,0),2)
 
     return frame, detected_objects, detected_texts
 
 # ================= RUN DETECTION =================
 def run_detection():
     global last_frame
-
     if last_frame is None:
         return
 
     frame = last_frame.copy()
     update_status("Detecting...")
 
-    use_online = (
-        MODE == "ONLINE" or
-        (MODE == "AUTO" and internet_available())
-    )
-
-    if use_online:
+    if MODE == "ONLINE" or (MODE == "AUTO" and internet_available()):
         frame, objs, texts = online_detect(frame)
         mode_label.config(text="MODE: ONLINE")
     else:
@@ -329,9 +278,6 @@ def run_detection():
     message += ", ".join(texts) if texts else "None"
 
     update_status(message)
-
-    while not speech_queue.empty():
-        speech_queue.get_nowait()
     speech_queue.put(message)
 
 # ================= EXIT =================
