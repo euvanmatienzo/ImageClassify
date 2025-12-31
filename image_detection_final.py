@@ -144,7 +144,15 @@ def process_speech_queue():
     if not speaking and not speech_queue.empty():
         text = speech_queue.get()
         speaking = True
+        # engine = pyttsx3.init()
+        # engine.say(text)
+        # engine.runAndWait()
+        # engine.stop()
         engine = pyttsx3.init()
+
+        rate = engine.getProperty('rate')
+        engine.setProperty('rate', rate - 40)  # lower = slower speech
+
         engine.say(text)
         engine.runAndWait()
         engine.stop()
