@@ -45,16 +45,25 @@ root.title("Vision Capture")
 root.update_idletasks()
 SCREEN_W = root.winfo_screenwidth()
 SCREEN_H = root.winfo_screenheight()
+
 root.geometry(f"{SCREEN_W}x{SCREEN_H}")
 root.minsize(SCREEN_W, SCREEN_H)
 root.maxsize(SCREEN_W, SCREEN_H)
+
+# ---- SAFE AREA FIX FOR RASPBERRY PI DESKTOP ----
+WINDOW_TOP_MARGIN = 40   # title bar + desktop panel
+SAFE_HEIGHT = SCREEN_H - WINDOW_TOP_MARGIN
 
 # ---- LAYOUT CONSTANTS ----
 CONTROL_HEIGHT = 140
 
 # ================= VIDEO FRAME =================
-video_frame = Frame(root, bg="black", height=SCREEN_H - CONTROL_HEIGHT)
-video_frame.pack(side="top", fill="both")
+video_frame = Frame(
+    root,
+    bg="black",
+    height=SAFE_HEIGHT - CONTROL_HEIGHT
+)
+video_frame.pack(side="top", fill="x")
 video_frame.pack_propagate(False)
 
 video_label = Label(video_frame, bg="black")
@@ -156,7 +165,10 @@ root.after(100, process_speech_queue)
 # ================= UI HELPERS =================
 def show_frame(frame):
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    frame = cv2.resize(frame, (SCREEN_W, SCREEN_H - CONTROL_HEIGHT))
+    frame = cv2.resize(
+        frame,
+        (SCREEN_W, SAFE_HEIGHT - CONTROL_HEIGHT)
+    )
     img = Image.fromarray(frame)
     imgtk = ImageTk.PhotoImage(img)
     video_label.imgtk = imgtk
@@ -187,7 +199,7 @@ def offline_detect(frame):
     original_frame = frame.copy()
     yolo_frame = frame.copy()
 
-    # YOLO (objects)
+    # YOLO OBJECTS
     results = yolo_model(yolo_frame, verbose=False)
     for r in results:
         for box in r.boxes:
@@ -196,20 +208,33 @@ def offline_detect(frame):
             detected_objects.append(label)
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             cv2.rectangle(yolo_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(yolo_frame, label, (x1, max(y1 - 6, 15)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(
+                yolo_frame,
+                label,
+                (x1, max(y1 - 6, 15)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
+            )
 
-    # EasyOCR (text on CLEAN frame)
-    ocr_results = ocr_reader.readtext(original_frame)
-    for bbox, text, conf in ocr_results:
+    # EASYOCR ON CLEAN FRAME
+    for bbox, text, conf in ocr_reader.readtext(original_frame):
         if conf < 0.4:
             continue
         detected_texts.append(text)
         pts = np.array(bbox, dtype=np.int32)
         cv2.polylines(yolo_frame, [pts], True, (255, 0, 0), 2)
         x, y = pts[0]
-        cv2.putText(yolo_frame, text[:15], (x, max(y - 6, 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        cv2.putText(
+            yolo_frame,
+            text[:15],
+            (x, max(y - 6, 15)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 0, 0),
+            2
+        )
 
     return yolo_frame, detected_objects, detected_texts
 
@@ -227,17 +252,24 @@ def online_detect(frame):
 
     h, w, _ = frame.shape
 
-    # Objects
+    # OBJECTS
     for o in objects:
         v = o.bounding_poly.normalized_vertices
         x1, y1 = int(v[0].x * w), int(v[0].y * h)
         x2, y2 = int(v[2].x * w), int(v[2].y * h)
         detected_objects.append(o.name)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(frame, o.name, (x1, max(y1 - 6, 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        cv2.putText(
+            frame,
+            o.name,
+            (x1, max(y1 - 6, 15)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2
+        )
 
-    # OCR (FIXED: boxes + text)
+    # OCR (WITH TEXT)
     for t in ocr[1:]:
         pts = []
         for v in t.bounding_poly.vertices:
@@ -255,8 +287,15 @@ def online_detect(frame):
         cv2.polylines(frame, [pts], True, (255, 0, 0), 2)
 
         x, y = pts[0]
-        cv2.putText(frame, label[:15], (x, max(y - 6, 15)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        cv2.putText(
+            frame,
+            label[:15],
+            (x, max(y - 6, 15)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (255, 0, 0),
+            2
+        )
 
     return frame, detected_objects, detected_texts
 
